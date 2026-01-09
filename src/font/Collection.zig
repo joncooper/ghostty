@@ -125,17 +125,28 @@ pub fn add(
     var owned_face = face;
 
     // Scale factor to adjust the size of the added face.
-    const scale_factor = self.scaleFactor(
-        owned_face.getMetrics(),
-        opts.size_adjustment,
-    );
+    const scale_factor: f64 = if (opts.size_adjustment == .none)
+        1.0
+    else
+        self.scaleFactor(
+            owned_face.getMetrics(),
+            opts.size_adjustment,
+        );
 
     // If we have load options, we update the size to ensure
-    // it's matches and is normalized to the primary if possible.
+    // it matches and is normalized to the primary if possible.
     if (self.load_options) |load_opts| {
         var new_opts = load_opts;
         new_opts.size.points *= @floatCast(scale_factor);
-        owned_face.setSize(new_opts.faceOptions()) catch return error.SetSizeFailed;
+
+        const size_matches =
+            owned_face.size.points == new_opts.size.points and
+            owned_face.size.xdpi == new_opts.size.xdpi and
+            owned_face.size.ydpi == new_opts.size.ydpi;
+
+        if (!size_matches) {
+            owned_face.setSize(new_opts.faceOptions()) catch return error.SetSizeFailed;
+        }
     }
 
     try list.append(alloc, .{

@@ -125,6 +125,32 @@ pub fn familyName(self: DeferredFace, buf: []u8) ![]const u8 {
     return "";
 }
 
+/// Returns the style name of the font face.
+pub fn styleName(self: DeferredFace, buf: []u8) ![]const u8 {
+    switch (options.backend) {
+        .freetype => {},
+
+        .fontconfig_freetype => if (self.fc) |fc|
+            return (try fc.pattern.get(.style, 0)).string,
+
+        .coretext,
+        .coretext_freetype,
+        .coretext_harfbuzz,
+        .coretext_noshape,
+        => if (self.ct) |ct| {
+            const style_name = ct.font.copyAttribute(.style_name) orelse
+                return "";
+            defer style_name.release();
+            return style_name.cstring(buf, .utf8) orelse
+                return error.OutOfMemory;
+        },
+
+        .web_canvas => if (self.wc) |wc| return wc.font_str,
+    }
+
+    return "";
+}
+
 /// Returns the name of this face. The memory is always owned by the
 /// face so it doesn't have to be freed.
 pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
@@ -154,6 +180,45 @@ pub fn name(self: DeferredFace, buf: []u8) ![]const u8 {
     }
 
     return "";
+}
+
+/// Returns the file path for this face, if available.
+pub fn filePath(self: DeferredFace, buf: []u8) !?[]const u8 {
+    switch (options.backend) {
+        .freetype => {},
+
+        .fontconfig_freetype => if (self.fc) |fc|
+            return (try fc.pattern.get(.file, 0)).string,
+
+        .coretext,
+        .coretext_freetype,
+        .coretext_harfbuzz,
+        .coretext_noshape,
+        => if (self.ct) |ct| {
+            const url = ct.font.copyAttribute(.url) orelse
+                return null;
+            defer url.release();
+
+            const path = url.copyPath() orelse return null;
+            defer path.release();
+
+            const blank = try macos.foundation.String.createWithBytes("", .utf8, false);
+            defer blank.release();
+
+            const decoded = try macos.foundation.URL.createStringByReplacingPercentEscapes(
+                path,
+                blank,
+            );
+            defer decoded.release();
+
+            return decoded.cstring(buf[0..buf.len - 1], .utf8) orelse
+                return error.OutOfMemory;
+        },
+
+        .web_canvas => return null,
+    }
+
+    return null;
 }
 
 /// Load the deferred font face. This does nothing if the face is loaded.

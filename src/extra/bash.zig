@@ -50,7 +50,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\
         \\  _fonts() {
         \\    local IFS=$'\n'
-        \\    mapfile -t COMPREPLY < <( compgen -P '"' -S '"' -W "$($ghostty +list-fonts | grep '^[A-Z]' )" -- "$cur")
+        \\    mapfile -t COMPREPLY < <( compgen -P '"' -S '"' -W "$($ghostty +list-fonts --plain | grep '^[A-Z]' )" -- "$cur")
         \\  }
         \\
         \\  _themes() {

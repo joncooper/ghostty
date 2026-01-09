@@ -50,7 +50,7 @@ fn writeCompletions(writer: *std.Io.Writer) !void {
         try writer.writeAll(field.name);
         try writer.writeAll(if (field.type != bool) " -r" else " ");
         if (std.mem.startsWith(u8, field.name, "font-family"))
-            try writer.writeAll(" -f  -a \"(ghostty +list-fonts | grep '^[A-Z]')\"")
+            try writer.writeAll(" -f  -a \"(ghostty +list-fonts --plain | grep '^[A-Z]')\"")
         else if (std.mem.eql(u8, "theme", field.name))
             try writer.writeAll(" -f -a \"(ghostty +list-themes | sed -E 's/^(.*) \\(.*\\$/\\1/')\"")
         else if (std.mem.eql(u8, "working-directory", field.name))
