@@ -62,7 +62,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
-         withBrowserSplit browserSplitState: BrowserSplitRestorableState? = nil,
          parent: NSWindow? = nil
     ) {
         // The window we manage is not restorable if we've specified a command
@@ -76,10 +75,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         self.derivedConfig = DerivedConfig(ghostty.config)
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
-
-        if let browserSplitState {
-            self.browserSplit = BrowserSplitModel(restoring: browserSplitState)
-        }
 
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
@@ -947,7 +942,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     struct UndoState {
         let frame: NSRect
         let surfaceTree: SplitTree<Ghostty.SurfaceView>
-        let browserSplitState: BrowserSplitRestorableState?
         let focusedSurface: UUID?
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
@@ -957,8 +951,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
         self.init(
             ghostty,
-            withSurfaceTree: undoState.surfaceTree,
-            withBrowserSplit: undoState.browserSplitState)
+            withSurfaceTree: undoState.surfaceTree)
 
         // Show the window and restore its frame
         showWindow(nil)
@@ -1007,7 +1000,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return .init(
             frame: window.frame,
             surfaceTree: surfaceTree,
-            browserSplitState: browserSplit?.restorableState,
             focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
             tabGroup: window.tabGroup,

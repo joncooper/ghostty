@@ -196,6 +196,24 @@ extension Ghostty {
             }
         }
 
+        /// The optional browser split attached to this surface.
+        @Published var browserSplit: BrowserSplitModel? = nil {
+            didSet {
+                browserSplitStateCancellable = browserSplit?.objectWillChange.sink { [weak self] _ in
+                    self?.browserStateDidChange()
+                }
+
+                if browserSplit == nil {
+                    browserSplitIsFocused = false
+                }
+
+                browserStateDidChange()
+            }
+        }
+
+        /// True when the attached browser currently owns first responder.
+        private(set) var browserSplitIsFocused: Bool = false
+
         /// Returns the data model for this surface.
         ///
         /// Note: eventually, all surface access will be through this, but presently its in a transition
@@ -233,6 +251,9 @@ extension Ghostty {
 
         // Timer to remove progress report after 15 seconds
         private var progressReportTimer: Timer?
+
+        // Tracks browser split changes for restoration updates.
+        private var browserSplitStateCancellable: AnyCancellable?
 
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
@@ -386,7 +407,14 @@ extension Ghostty {
             ) { [weak self] event in self?.localEventHandler(event) }
 
             // Setup our surface. This will also initialize all the terminal IO.
-            let surface_cfg = baseConfig ?? SurfaceConfiguration()
+            var surface_cfg = baseConfig ?? SurfaceConfiguration()
+            surface_cfg.environmentVariables["GHOSTTY_SURFACE_ID"] = id.uuidString
+            if let bundleIdentifier = Bundle.main.bundleIdentifier {
+                surface_cfg.environmentVariables["GHOSTTY_APP_BUNDLE_ID"] = bundleIdentifier
+            }
+            surface_cfg.environmentVariables["GHOSTTY_BROWSER_SPLIT_SOCKET"] =
+                BrowserSplitCommandServer.socketPath(
+                    processID: ProcessInfo.processInfo.processIdentifier)
             let surface = surface_cfg.withCValue(view: self) { surface_cfg_c in
                 ghostty_surface_new(app, &surface_cfg_c)
             }
@@ -469,6 +497,107 @@ extension Ghostty {
                     self.notificationIdentifiers = []
                 }
             }
+        }
+
+        private func browserStateDidChange() {
+            invalidateRestorableState()
+            window?.invalidateRestorableState()
+            window?.windowController?.invalidateRestorableState()
+        }
+
+        func openBrowserSplit(url: String? = nil, focus: Bool = false) {
+            if browserSplit == nil {
+                browserSplit = BrowserSplitModel(focusOnAppear: focus && url == nil)
+            }
+
+            guard let browserSplit else { return }
+
+            if let url {
+                browserSplit.openLocation(url)
+            }
+
+            if focus {
+                focusBrowserSplit()
+            }
+        }
+
+        func focusBrowserSplit() {
+            guard let browserSplit else { return }
+            browserSplitIsFocused = true
+
+            if let controller = window?.windowController as? BaseTerminalController {
+                controller.focusedSurface = self
+                controller.syncFocusToSurfaceTree()
+            }
+
+            window?.makeKeyAndOrderFront(nil)
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+            browserSplit.requestDefaultFocus()
+        }
+
+        func closeBrowserSplit() {
+            guard browserSplit != nil else { return }
+
+            let shouldRestoreTerminalFocus = browserSplitIsFocused
+            browserSplit = nil
+            browserSplitIsFocused = false
+
+            if let controller = window?.windowController as? BaseTerminalController {
+                if controller.focusedSurface == nil || controller.focusedSurface == self {
+                    controller.focusedSurface = self
+                }
+                controller.syncFocusToSurfaceTree()
+            }
+
+            if shouldRestoreTerminalFocus {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    Ghostty.moveFocus(to: self)
+                }
+            }
+        }
+
+        func toggleBrowserSplit() {
+            if browserSplit != nil {
+                closeBrowserSplit()
+            } else {
+                openBrowserSplit(focus: true)
+            }
+        }
+
+        func browserSplitFocusDidChange(_ focused: Bool) {
+            browserSplitIsFocused = focused
+
+            if let controller = window?.windowController as? BaseTerminalController {
+                if focused {
+                    controller.focusedSurface = self
+                }
+                controller.syncFocusToSurfaceTree()
+            }
+        }
+
+        func performHostAction(_ action: String) -> Bool {
+            guard let action = BrowserHostAction.parse(action) else { return false }
+
+            switch action {
+            case .open:
+                openBrowserSplit()
+
+            case .close:
+                closeBrowserSplit()
+
+            case .focus:
+                openBrowserSplit()
+                focusBrowserSplit()
+
+            case let .openURL(url):
+                openBrowserSplit(url: url)
+            }
+
+            return true
         }
 
         func sizeDidChange(_ size: CGSize) {
@@ -1756,6 +1885,7 @@ extension Ghostty {
             case uuid
             case title
             case isUserSetTitle
+            case browserSplitState
         }
 
         required convenience init(from decoder: Decoder) throws {
@@ -1772,6 +1902,7 @@ extension Ghostty {
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
+            let browserSplitState = try container.decodeIfPresent(BrowserSplitRestorableState.self, forKey: .browserSplitState)
 
             self.init(app, baseConfig: config, uuid: uuid)
 
@@ -1783,6 +1914,10 @@ extension Ghostty {
                     self.titleFromTerminal = title
                 }
             }
+
+            if let browserSplitState {
+                self.browserSplit = BrowserSplitModel(restoring: browserSplitState)
+            }
         }
 
         func encode(to encoder: Encoder) throws {
@@ -1791,6 +1926,7 @@ extension Ghostty {
             try container.encode(id.uuidString, forKey: .uuid)
             try container.encode(title, forKey: .title)
             try container.encode(titleFromTerminal != nil, forKey: .isUserSetTitle)
+            try container.encode(browserSplit?.restorableState, forKey: .browserSplitState)
         }
     }
 }

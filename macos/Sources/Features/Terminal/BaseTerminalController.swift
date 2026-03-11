@@ -51,21 +51,6 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
-    /// The optional browser split shown beside the terminal content.
-    @Published var browserSplit: BrowserSplitModel? = nil {
-        didSet {
-            browserSplitStateCancellable = browserSplit?.objectWillChange.sink { [weak self] _ in
-                self?.invalidateRestorableState()
-            }
-
-            if browserSplit == nil {
-                browserSplitIsFocused = false
-            }
-
-            invalidateRestorableState()
-        }
-    }
-
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
@@ -100,12 +85,6 @@ class BaseTerminalController: NSWindowController,
 
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
-
-    /// Whether the browser split currently owns first responder status.
-    private var browserSplitIsFocused: Bool = false
-
-    /// Tracks browser split changes so window restoration keeps up with navigation and resizing.
-    private var browserSplitStateCancellable: AnyCancellable?
 
     /// Cancellable for aggregating bell state across all surfaces in this controller.
     private var bellStateCancellable: AnyCancellable?
@@ -323,9 +302,9 @@ class BaseTerminalController: NSWindowController,
             // focused surface is the surface in this view.
             let focused: Bool = (window?.isKeyWindow ?? false) &&
                 !commandPaletteIsShowing &&
-                !browserSplitIsFocused &&
                 focusedSurface != nil &&
-                surfaceView == focusedSurface!
+                surfaceView == focusedSurface! &&
+                !surfaceView.browserSplitIsFocused
             surfaceView.focusDidChange(focused)
         }
     }
@@ -826,7 +805,6 @@ class BaseTerminalController: NSWindowController,
     func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         let lastFocusedSurface = focusedSurface
         focusedSurface = to
-        browserSplitIsFocused = false
 
         // Important to cancel any prior subscriptions
         focusedSurfaceCancellables = []
@@ -994,31 +972,16 @@ class BaseTerminalController: NSWindowController,
     }
 
     func performAction(_ action: String, on surfaceView: Ghostty.SurfaceView) {
+        if surfaceView.performHostAction(action) {
+            return
+        }
+
         guard let surface = surfaceView.surface else { return }
         let len = action.utf8CString.count
         if len == 0 { return }
         _ = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(len - 1))
         }
-    }
-
-    func closeBrowserSplit() {
-        guard browserSplit != nil else { return }
-
-        browserSplit = nil
-        browserSplitIsFocused = false
-        syncFocusToSurfaceTree()
-
-        if let focusedSurface {
-            DispatchQueue.main.async {
-                Ghostty.moveFocus(to: focusedSurface)
-            }
-        }
-    }
-
-    func browserSplitFocusDidChange(_ focused: Bool) {
-        browserSplitIsFocused = focused
-        syncFocusToSurfaceTree()
     }
 
     // MARK: Appearance
@@ -1369,14 +1332,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func toggleBrowserSplit(_ sender: Any) {
-        if browserSplit != nil {
-            closeBrowserSplit()
-            return
-        }
-
-        browserSplit = BrowserSplitModel()
-        browserSplitIsFocused = true
-        syncFocusToSurfaceTree()
+        focusedSurface?.toggleBrowserSplit()
     }
 
     @IBAction func splitMoveFocusPrevious(_ sender: Any) {
@@ -1507,7 +1463,7 @@ extension BaseTerminalController: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(toggleBrowserSplit):
-            item.title = browserSplit == nil ? "Open Browser Split" : "Close Browser Split"
+            item.title = focusedSurface?.browserSplit == nil ? "Open Browser Split" : "Close Browser Split"
             return true
 
         case #selector(findHide):

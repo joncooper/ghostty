@@ -41,11 +41,10 @@ extension TerminalRestorable {
 
 /// The state stored for terminal window restoration.
 class TerminalRestorableState: TerminalRestorable {
-    class var version: Int { 8 }
+    class var version: Int { 9 }
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
-    let browserSplitState: BrowserSplitRestorableState?
     let effectiveFullscreenMode: FullscreenMode?
     let tabColor: TerminalTabColor
     let titleOverride: String?
@@ -53,7 +52,6 @@ class TerminalRestorableState: TerminalRestorable {
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
-        self.browserSplitState = controller.browserSplit?.restorableState
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
         self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
         self.titleOverride = controller.titleOverride
@@ -62,7 +60,6 @@ class TerminalRestorableState: TerminalRestorable {
     required init(copy other: TerminalRestorableState) {
         self.surfaceTree = other.surfaceTree
         self.focusedSurface = other.focusedSurface
-        self.browserSplitState = other.browserSplitState
         self.effectiveFullscreenMode = other.effectiveFullscreenMode
         self.tabColor = other.tabColor
         self.titleOverride = other.titleOverride
@@ -118,8 +115,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // be.
         let c = TerminalController.init(
             appDelegate.ghostty,
-            withSurfaceTree: state.surfaceTree,
-            withBrowserSplit: state.browserSplitState)
+            withSurfaceTree: state.surfaceTree)
         guard let window = c.window else {
             completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
             return

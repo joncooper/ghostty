@@ -56,6 +56,9 @@ final class ScriptTerminal: NSObject {
     /// Used by command handling (`perform action ... on <terminal>`).
     func perform(action: String) -> Bool {
         guard NSApp.isAppleScriptEnabled else { return false }
+        if surfaceView?.performHostAction(action) == true {
+            return true
+        }
         guard let surfaceModel = surfaceView?.surfaceModel else { return false }
         return surfaceModel.perform(action: action)
     }

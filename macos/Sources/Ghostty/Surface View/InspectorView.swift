@@ -23,19 +23,27 @@ extension Ghostty {
             let pubInspector = center.publisher(for: Notification.didControlInspector, object: surfaceView)
 
             ZStack {
-                if !surfaceView.inspectorVisible {
-                    SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
-                } else {
-                    SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
-                        SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                if let browserSplit = surfaceView.browserSplit {
+                    SplitView(.horizontal, .init(get: {
+                        browserSplit.splitRatio
+                    }, set: {
+                        browserSplit.splitRatio = $0
+                    }), dividerColor: ghostty.config.splitDividerColor, left: {
+                        terminalContent
                     }, right: {
-                        InspectorViewRepresentable(surfaceView: surfaceView)
-                            .focused($inspectorFocus)
-                            .focusedValue(\.ghosttySurfaceView, surfaceView)
+                        BrowserSplitView(
+                            model: browserSplit,
+                            onClose: {
+                                surfaceView.closeBrowserSplit()
+                            },
+                            onFocusChange: {
+                                surfaceView.browserSplitFocusDidChange($0)
+                            })
                     }, onEqualize: {
-                        guard let surface = surfaceView.surface else { return }
-                        ghostty.splitEqualize(surface: surface)
+                        browserSplit.splitRatio = CGFloat(BrowserSplitRestorableState.defaultSplitRatio)
                     })
+                } else {
+                    terminalContent
                 }
             }
             .onReceive(pubInspector) { onControlInspector($0) }
@@ -50,6 +58,25 @@ extension Ghostty {
                     }
                 } else {
                     Ghostty.moveFocus(to: surfaceView)
+                }
+            }
+        }
+
+        private var terminalContent: some View {
+            Group {
+                if !surfaceView.inspectorVisible {
+                    SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                } else {
+                    SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
+                        SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                    }, right: {
+                        InspectorViewRepresentable(surfaceView: surfaceView)
+                            .focused($inspectorFocus)
+                            .focusedValue(\.ghosttySurfaceView, surfaceView)
+                    }, onEqualize: {
+                        guard let surface = surfaceView.surface else { return }
+                        ghostty.splitEqualize(surface: surface)
+                    })
                 }
             }
         }

@@ -95,6 +95,15 @@ class AppDelegate: NSObject,
     /// This is the current configuration from the Ghostty configuration that we need.
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
+    /// Receives browser split commands from CLI processes spawned by this app.
+    private lazy var browserSplitCommandServer = BrowserSplitCommandServer { [weak self] request in
+        guard let self else {
+            return .init(ok: false, error: "Ghostty is shutting down.")
+        }
+
+        return self.handleBrowserSplitCommand(request)
+    }
+
     /// The ghostty global state. Only one per process.
     let ghostty: Ghostty.App
 
@@ -183,6 +192,13 @@ class AppDelegate: NSObject,
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
         ])
+
+        do {
+            try browserSplitCommandServer.start()
+        } catch {
+            Self.logger.error(
+                "failed to start browser split command server: \(String(describing: error), privacy: .public)")
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -412,10 +428,58 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        browserSplitCommandServer.stop()
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+    }
+
+    private func handleBrowserSplitCommand(_ request: BrowserSplitCommandRequest) -> BrowserSplitCommandResponse {
+        guard let terminalID = UUID(uuidString: request.terminalID) else {
+            return .init(ok: false, error: "Invalid terminal id.")
+        }
+
+        guard let surface = surfaceView(for: terminalID) else {
+            return .init(ok: false, error: "Terminal not found in this Ghostty instance.")
+        }
+
+        let ok: Bool
+        if request.close {
+            ok = surface.performHostAction("browser_close")
+        } else {
+            ok = performBrowserOpenRequest(request, on: surface)
+        }
+
+        return .init(
+            ok: ok,
+            error: ok ? nil : "Ghostty rejected the browser command.")
+    }
+
+    private func performBrowserOpenRequest(
+        _ request: BrowserSplitCommandRequest,
+        on surface: Ghostty.SurfaceView) -> Bool
+    {
+        var ok = surface.performHostAction("browser_split")
+
+        if let url = request.url {
+            ok = surface.performHostAction("browser_open_url:\(url)") && ok
+        }
+
+        if request.focus {
+            ok = surface.performHostAction("browser_focus") && ok
+        }
+
+        return ok
+    }
+
+    private func surfaceView(for id: UUID) -> Ghostty.SurfaceView? {
+        NSApp.windows
+            .compactMap { $0.windowController as? BaseTerminalController }
+            .lazy
+            .flatMap { $0.surfaceTree.root?.leaves() ?? [] }
+            .first { $0.id == id }
     }
 
     /// This is called when the application is already open and someone double-clicks the icon
