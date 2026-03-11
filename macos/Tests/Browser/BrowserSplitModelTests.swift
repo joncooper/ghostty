@@ -71,4 +71,25 @@ struct BrowserSplitModelTests {
         let parsed = try BrowserSplitCommandResponse.parse(response.serialized())
         #expect(parsed == response)
     }
+
+    @MainActor
+    @Test
+    func onlyPersistentBrowserStateTriggersImmediateInvalidation() {
+        let model = BrowserSplitModel()
+        var notifications = 0
+        model.onRestorableStateChange = {
+            notifications += 1
+        }
+
+        model.address = "ghostty.org"
+        model.requestDefaultFocus()
+        #expect(notifications == 0)
+
+        model.splitRatio = 0.6
+        model.splitRatio = 0.55
+        #expect(notifications == 0)
+
+        model.openLocation("about:blank")
+        #expect(notifications == 1)
+    }
 }

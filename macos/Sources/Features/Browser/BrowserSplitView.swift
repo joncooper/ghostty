@@ -59,16 +59,32 @@ struct BrowserSplitRestorableState: Codable, Equatable {
 
 @MainActor
 final class BrowserSplitModel: NSObject, ObservableObject {
+    private static let restorableSplitRatioDebounce: TimeInterval = 0.2
+
     @Published var address: String
     @Published private(set) var canGoBack: Bool
     @Published private(set) var canGoForward: Bool
     @Published private(set) var isLoading: Bool
-    @Published var splitRatio: CGFloat
+    @Published var splitRatio: CGFloat {
+        didSet {
+            guard oldValue != splitRatio else { return }
+            scheduleRestorableStateChange(after: Self.restorableSplitRatioDebounce)
+        }
+    }
     @Published private(set) var focusRequest: BrowserSplitFocusRequest?
 
     let webView: BrowserSplitNativeView
 
-    private(set) var currentLocation: String?
+    var onRestorableStateChange: (() -> Void)?
+
+    private(set) var currentLocation: String? {
+        didSet {
+            guard oldValue != currentLocation else { return }
+            notifyRestorableStateChange()
+        }
+    }
+
+    private var pendingRestorableStateChange: DispatchWorkItem?
 
     override init() {
         self.address = ""
@@ -112,6 +128,10 @@ final class BrowserSplitModel: NSObject, ObservableObject {
         } else {
             loadPlaceholderPage()
         }
+    }
+
+    deinit {
+        pendingRestorableStateChange?.cancel()
     }
 
     nonisolated var restorableState: BrowserSplitRestorableState {
@@ -282,6 +302,25 @@ final class BrowserSplitModel: NSObject, ObservableObject {
         canGoBack = webView.canGoBack
         canGoForward = webView.canGoForward
         isLoading = webView.isLoading
+    }
+
+    private func notifyRestorableStateChange() {
+        pendingRestorableStateChange?.cancel()
+        pendingRestorableStateChange = nil
+        onRestorableStateChange?()
+    }
+
+    private func scheduleRestorableStateChange(after delay: TimeInterval) {
+        pendingRestorableStateChange?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingRestorableStateChange = nil
+            self.onRestorableStateChange?()
+        }
+
+        pendingRestorableStateChange = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private static func escapeHTML(_ value: String) -> String {

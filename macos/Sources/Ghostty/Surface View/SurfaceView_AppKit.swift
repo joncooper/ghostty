@@ -199,7 +199,8 @@ extension Ghostty {
         /// The optional browser split attached to this surface.
         @Published var browserSplit: BrowserSplitModel? = nil {
             didSet {
-                browserSplitStateCancellable = browserSplit?.objectWillChange.sink { [weak self] _ in
+                oldValue?.onRestorableStateChange = nil
+                browserSplit?.onRestorableStateChange = { [weak self] in
                     self?.browserStateDidChange()
                 }
 
@@ -251,9 +252,6 @@ extension Ghostty {
 
         // Timer to remove progress report after 15 seconds
         private var progressReportTimer: Timer?
-
-        // Tracks browser split changes for restoration updates.
-        private var browserSplitStateCancellable: AnyCancellable?
 
         // This is the title from the terminal. This is nil if we're currently using
         // the terminal title as the main title property. If the title is set manually
