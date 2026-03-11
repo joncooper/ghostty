@@ -408,6 +408,12 @@
                                     <action selector="splitZoom:" target="-1" id="g0e-Ls-D7L"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Open Browser Split" keyEquivalent="b" id="4Rz-3a-bSu">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="toggleBrowserSplit:" target="-1" id="0m2-3J-yNw"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Select Previous Split" id="Lic-px-1wg">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

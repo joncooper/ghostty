@@ -20,6 +20,12 @@ protocol TerminalViewDelegate: AnyObject {
 
     /// A split tree operation
     func performSplitAction(_ action: TerminalSplitOperation)
+
+    /// Close the browser split if it is visible.
+    func closeBrowserSplit()
+
+    /// The browser split focus changed.
+    func browserSplitFocusDidChange(_ focused: Bool)
 }
 
 /// The view model is a required implementation for TerminalView callers. This contains
@@ -35,6 +41,9 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
+
+    /// The optional browser split shown beside terminal content on macOS.
+    var browserSplit: BrowserSplitModel? { get set }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -79,30 +88,34 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         DebugBuildWarningView()
                     }
 
-                    TerminalSplitTreeView(
-                        tree: viewModel.surfaceTree,
-                        action: { delegate?.performSplitAction($0) })
-                        .environmentObject(ghostty)
-                        .ghosttyLastFocusedSurface(lastFocusedSurface)
-                        .focused($focused)
-                        .onAppear { self.focused = true }
-                        .onChange(of: focusedSurface) { newValue in
-                            // We want to keep track of our last focused surface so even if
-                            // we lose focus we keep this set to the last non-nil value.
-                            if newValue != nil {
-                                lastFocusedSurface = .init(newValue)
-                                self.delegate?.focusedSurfaceDidChange(to: newValue)
-                            }
-                        }
-                        .onChange(of: pwdURL) { newValue in
-                            self.delegate?.pwdDidChange(to: newValue)
-                        }
-                        .onChange(of: cellSize) { newValue in
-                            guard let size = newValue else { return }
-                            self.delegate?.cellSizeDidChange(to: size)
-                        }
-                        .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                               idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                    if let browserSplit = viewModel.browserSplit {
+                        SplitView(
+                            .horizontal,
+                            .init(get: {
+                                browserSplit.splitRatio
+                            }, set: {
+                                browserSplit.splitRatio = $0
+                            }),
+                            dividerColor: ghostty.config.splitDividerColor,
+                            left: {
+                                terminalPane
+                            },
+                            right: {
+                                BrowserSplitView(
+                                    model: browserSplit,
+                                    onClose: {
+                                        delegate?.closeBrowserSplit()
+                                    },
+                                    onFocusChange: {
+                                        delegate?.browserSplitFocusDidChange($0)
+                                    })
+                            },
+                            onEqualize: {
+                                browserSplit.splitRatio = CGFloat(BrowserSplitRestorableState.defaultSplitRatio)
+                            })
+                    } else {
+                        terminalPane
+                    }
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
                 .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
@@ -124,6 +137,37 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
             }
             .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
         }
+    }
+
+    private var terminalPane: some View {
+        TerminalSplitTreeView(
+            tree: viewModel.surfaceTree,
+            action: { delegate?.performSplitAction($0) })
+            .environmentObject(ghostty)
+            .ghosttyLastFocusedSurface(lastFocusedSurface)
+            .focused($focused)
+            .onAppear {
+                if viewModel.browserSplit == nil {
+                    self.focused = true
+                }
+            }
+            .onChange(of: focusedSurface) { newValue in
+                // We want to keep track of our last focused surface so even if
+                // we lose focus we keep this set to the last non-nil value.
+                if newValue != nil {
+                    lastFocusedSurface = .init(newValue)
+                    self.delegate?.focusedSurfaceDidChange(to: newValue)
+                }
+            }
+            .onChange(of: pwdURL) { newValue in
+                self.delegate?.pwdDidChange(to: newValue)
+            }
+            .onChange(of: cellSize) { newValue in
+                guard let size = newValue else { return }
+                self.delegate?.cellSizeDidChange(to: size)
+            }
+            .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                   idealHeight: lastFocusedSurface?.value?.initialSize?.height)
     }
 }
 
